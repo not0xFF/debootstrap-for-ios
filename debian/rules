@@ -1,141 +1,45 @@
-#!/usr/bin/make -f
+#! /usr/bin/make -f
 
-# Uncomment this to turn on verbose mode.
-#export DH_VERBOSE=1
+ifeq (0,$(shell dpkg-vendor --derives-from Ubuntu; echo $$?))
+  KEYRING := ubuntu-keyring
+else ifeq (0,$(shell dpkg-vendor --derives-from Tanglu; echo $$?))
+  KEYRING := tanglu-archive-keyring
+else
+  KEYRING := debian-archive-keyring
+endif
 
-DPKG_EXPORT_BUILDFLAGS = 1
-include /usr/share/dpkg/default.mk
+%:
+	dh $@
 
-VERSION  := $(shell dpkg-parsechangelog | sed -ne 's,^Version: *\(.*\),\1,p')
+# need to be root to make devices, so build is done in install target
+override_dh_auto_build:
 
-configure:
-	autoreconf -i
-	@exit 1
+override_dh_auto_install:
+	dh_auto_build
+	
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/debootstrap
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/debootstrap-udeb
+	
+	# remove scripts not needed by d-i
+	-rm -f debian/debootstrap-udeb/usr/share/debootstrap/scripts/potato \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/woody \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/sarge \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/warty \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/hoary \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/breezy \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/dapper \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/edgy \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/feisty \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/*.buildd \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/*.fakechroot \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/stable \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/testing \
+		debian/debootstrap-udeb/usr/share/debootstrap/scripts/unstable
 
-CONFIGURE = ../configure \
-		--host=$(DEB_HOST_GNU_TYPE) \
-		--build=$(DEB_BUILD_GNU_TYPE) \
-		--prefix=/usr \
-		--mandir=\$${prefix}/share/man \
-		--infodir=\$${prefix}/share/info \
-		--with-debian-architecture=$(DEB_HOST_ARCH)
+override_dh_gencontrol:
+	dh_gencontrol -- -Vkeyring=$(KEYRING)
 
-build-deb/config.status: export CFLAGS += -Wall -W -Werror -ggdb
-build-static/config.status build-tar/config.status: export CFLAGS += -Wall -W -Werror
-build-static/config.status build-tar/config.status: export LDFLAGS += -static
-
-build-deb/config.status: configure
-	dh_testdir
-	-mkdir build-deb
-	cd build-deb && \
-	$(CONFIGURE) \
-		--with-frontend=standalone
-
-build-static/config.status: configure
-	dh_testdir
-	-mkdir build-static
-	cd build-static && \
-	$(CONFIGURE) \
-		--with-configdir=\$${datadir}/cdebootstrap-static \
-		--with-frontend=standalone
-
-build-tar/config.status: configure
-	dh_testdir
-	-mkdir build-tar
-	cd build-tar && \
-	$(CONFIGURE) \
-		--with-configdir=BINARY/cdebootstrap-support \
-		--with-frontend=standalone
-
-build build-arch build-indep: build-deb build-static build-tar
-
-.NOTPARALLEL: build-deb-stamp build-static-stamp build-tar-stamp
-
-build-deb: build-deb-stamp
-build-deb-stamp: build-deb/config.status
-	dh_testdir
-	$(MAKE) -C build-deb
-	touch $@
-
-build-static: build-static-stamp
-build-static-stamp: build-static/config.status
-	dh_testdir
-	$(MAKE) -C build-static
-	touch $@
-
-build-tar: build-tar-stamp
-build-tar-stamp: build-tar/config.status
-	dh_testdir
-	$(MAKE) -C build-tar
-	touch $@
-
-clean:
-	dh_testdir
-	rm -f *-stamp 
-
-	-rm -rf build-*
-
-	cp -f /usr/share/misc/config.sub config.sub
-	cp -f /usr/share/misc/config.guess config.guess
-
-	dh_clean
-
-install: build
-	dh_testdir
-	dh_testroot
-	dh_prep
-	dh_installdirs
-
-	$(MAKE) -C build-deb install DESTDIR=$(CURDIR)/debian/cdebootstrap
-
-	$(MAKE) -C build-static install DESTDIR=$(CURDIR)/debian/cdebootstrap-static
-	mv debian/cdebootstrap-static/usr/bin/cdebootstrap debian/cdebootstrap-static/usr/bin/cdebootstrap-static
-	mv debian/cdebootstrap-static/usr/share/man/man1/cdebootstrap.1 debian/cdebootstrap-static/usr/share/man/man1/cdebootstrap-static.1
-
-	$(MAKE) -C build-tar install DESTDIR=$(CURDIR)/debian/tmp
-	strip --remove-section=.comment --remove-section=.note debian/tmp/usr/bin/cdebootstrap
-	tar -C debian/tmp/usr/bin -czf debian/tmp/cdebootstrap_$(VERSION)_$(DEB_HOST_ARCH).tar.gz .
-	mkdir -p debian/cdebootstrap-static/usr/lib/cdebootstrap
-	cp debian/tmp/cdebootstrap_$(VERSION)_$(DEB_HOST_ARCH).tar.gz debian/cdebootstrap-static/usr/lib/cdebootstrap
-
-	( echo -n "misc:Built-Using="; dpkg-query -f='$${source:Package} (= $${source:Version}), ' -W libc6-dev; echo ) >> debian/cdebootstrap.substvars
-	( echo -n "misc:Built-Using="; dpkg-query -f='$${source:Package} (= $${source:Version}), ' -W libc6-dev libdebian-installer4-dev libdebconfclient0-dev libbz2-dev liblzma-dev zlib1g-dev; echo ) >> debian/cdebootstrap-static.substvars
-
-# Build architecture-independent files here.
-binary-indep: build install
-# We have nothing to do by default.
-
-# Build architecture-dependent files here.
-binary-arch: build install
-	dh_testdir
-	dh_testroot
-	dh_installchangelogs
-	dh_installdocs
-	dh_installexamples
-#	dh_install
-#	dh_installmenu
-	dh_installdebconf
-#	dh_installlogrotate
-#	dh_installemacsen
-#	dh_installpam
-#	dh_installmime
-#	dh_installinit
-#	dh_installcron
-#	dh_installinfo
-#	dh_installman
-	dh_lintian
-	dh_link
-	dh_strip
-	dh_compress
-	dh_fixperms
-#	dh_perl
-#	dh_python
-#	dh_makeshlibs
-	dh_installdeb
-	dh_shlibdeps
-	dh_gencontrol
-	dh_md5sums
-	dh_builddeb
-
-binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install 
+# Specify gzip to mitigate #770217:
+override_dh_builddeb:
+	dh_builddeb -pdebootstrap      -- -Zgzip
+	dh_builddeb -pdebootstrap-udeb -- -Zxz
