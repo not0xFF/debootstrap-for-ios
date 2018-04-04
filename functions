@@ -944,10 +944,10 @@ choose_extractor () {
 
 	if [ -n "$EXTRACTOR_OVERRIDE" ]; then
 		extractor="$EXTRACTOR_OVERRIDE"
-	elif in_path dpkg-deb; then
-		extractor="dpkg-deb"
-	else
+	elif in_path ar; then
 		extractor="ar"
+	else
+		extractor="dpkg-deb"
 	fi
 
 	info CHOSENEXTRACTOR "Chosen extractor for .deb packages: %s" "$extractor"
